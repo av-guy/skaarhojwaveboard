@@ -1,0 +1,835 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<head>
+    <title>Reference</title>
+    <link rel="stylesheet" href="ldoc.css" type="text/css" />
+</head>
+<body>
+
+<div id="container">
+
+<div id="product">
+	<div id="product_logo"></div>
+	<div id="product_name"><big><b></b></big></div>
+	<div id="product_description"></div>
+</div> <!-- id="product" -->
+
+
+<div id="main">
+
+
+<!-- Menu -->
+
+<div id="navigation">
+<br/>
+<h1>ldoc</h1>
+
+
+<h2>Contents</h2>
+<ul>
+<li><a href="#Functions">Functions</a></li>
+</ul>
+
+
+<h2>Modules</h2>
+<ul class="nowrap">
+  <li><strong>WaveBoard</strong></li>
+</ul>
+
+</div>
+
+<div id="content">
+
+<h1>Module <code>WaveBoard</code></h1>
+<p>(no description)</p>
+<p></p>
+
+
+<h2><a href="#Functions">Functions</a></h2>
+<table class="function_list">
+	<tr>
+	<td class="name" nowrap><a href="#__BuildHWCtString">__BuildHWCtString (arr)</a></td>
+	<td class="summary">String building method.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__ComputeHWCValue">__ComputeHWCValue (value, parameters)</a></td>
+	<td class="summary">Helper method for HWC commands.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__ComputeHWCcValue">__ComputeHWCcValue (value, rgb)</a></td>
+	<td class="summary">Helper method for HWCc commands.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__ComputeHWCtValue">__ComputeHWCtValue (value, parameters)</a></td>
+	<td class="summary">Helper method for HWCt commands.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__ComputeHWCxValue">__ComputeHWCxValue (value, parameters)</a></td>
+	<td class="summary">Helper method for HWCx commands.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__ConvertValue">__ConvertValue (value)</a></td>
+	<td class="summary">Boolean conversion method.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__Error">__Error (error)</a></td>
+	<td class="summary">Documents an error.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__HasValue">__HasValue (tab, val)</a></td>
+	<td class="summary">Checks if table has a value.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__InvalidResponse">__InvalidResponse (data)</a></td>
+	<td class="summary">Documents a bad response.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__Send">__Send (directive)</a></td>
+	<td class="summary">Sends device commands.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__SliceString">__SliceString (str, first, last)</a></td>
+	<td class="summary">Slices a string value and returns the result.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__SortByGroup">__SortByGroup (data)</a></td>
+	<td class="summary">Sort controls by group number.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__ToBits">__ToBits (num, bits)</a></td>
+	<td class="summary">Converts an integer to binary.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#__ToDecimal">__ToDecimal (bits)</a></td>
+	<td class="summary">Converts binary to integer.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#ParseData">ParseData (data)</a></td>
+	<td class="summary">Parses the incoming data for matches.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#Put">Put (arguments)</a></td>
+	<td class="summary">Executes a Put command.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#PutHWCValue">PutHWCValue (value, parameters)</a></td>
+	<td class="summary">Put method for HWCValue.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#PutHWCcValue">PutHWCcValue (value, parameters)</a></td>
+	<td class="summary">Put method for HWCcValue.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#PutHWCtValue">PutHWCtValue (value, parameters)</a></td>
+	<td class="summary">Put method for HWCtValue.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#PutHWCxValue">PutHWCxValue (value, parameters)</a></td>
+	<td class="summary">Put method for HWCxValue.</td>
+	</tr>
+	<tr>
+	<td class="name" nowrap><a href="#Watcher">Watcher (directive, value, params, callback)</a></td>
+	<td class="summary">Registers a callback function that triggers when conditions are met.</td>
+	</tr>
+</table>
+
+<br/>
+<br/>
+
+
+    <h2 class="section-header "><a name="Functions"></a>Functions</h2>
+
+    <dl class="function">
+    <dt>
+    <a name = "__BuildHWCtString"></a>
+    <strong>__BuildHWCtString (arr)</strong>
+    </dt>
+    <dd>
+    String building method.
+<p> HWCt Text values adhere to the following format:
+<p> [value]|[format]|[fine]|[Title]|[islabel]|[label 1]|[label 2]|[value2]|
+ [values pair]|[scale]|[scale range low]|[scale range high]|
+ [scale limit low]|[scale limit high]|[img]|[font]|[font size]|
+ [advanced settings].
+<p> __BuildHWCtString loops through the supplied values and creates a
+ pipe-delimited string matching the format specified by the Raw Panel API.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">arr</span>
+         table of values needing concatenation
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        string containing pipe delimited values
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "__ComputeHWCValue"></a>
+    <strong>__ComputeHWCValue (value, parameters)</strong>
+    </dt>
+    <dd>
+    Helper method for HWC commands.
+<p> Verifies, computes, and generates HWC command string matching format
+ HWC#xx==yy
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">value</span>
+         hwc target
+        </li>
+        <li><span class="parameter">parameters</span>
+         table of parameter values
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        string command
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "__ComputeHWCcValue"></a>
+    <strong>__ComputeHWCcValue (value, rgb)</strong>
+    </dt>
+    <dd>
+    Helper method for HWCc commands.
+<p> Verifies, computes, and generates HWCc command string matching format
+ HWCc#xx=yy
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">value</span>
+         hwc target
+        </li>
+        <li><span class="parameter">rgb</span>
+         color value
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+        <li>
+        string if rgb color is found</li>
+        <li>
+        nil if rgb color is not found</li>
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "__ComputeHWCtValue"></a>
+    <strong>__ComputeHWCtValue (value, parameters)</strong>
+    </dt>
+    <dd>
+    Helper method for HWCt commands.
+<p>
+ Verifies, computes, and assigns text elements in the correct order.
+ Returns a pipe-delimited string.
+<p> https://github.com/SKAARHOJ/Support/raw/master/Manuals/DC_SKAARHOJ_RawPanel.pdf
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">value</span>
+         hwc target
+        </li>
+        <li><span class="parameter">parameters</span>
+         table defining the text elements
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        string containing pipe-delimited characters
+    </ol>
+
+
+    <h3>See also:</h3>
+    <ul>
+         <a href="index.html#__BuildHWCtString">__BuildHWCtString</a>
+    </ul>
+
+
+</dd>
+    <dt>
+    <a name = "__ComputeHWCxValue"></a>
+    <strong>__ComputeHWCxValue (value, parameters)</strong>
+    </dt>
+    <dd>
+    Helper method for HWCx commands.
+<p>
+ Verifies, computes, and returns command string matching format
+ HWCx#xx=yy.
+<p> https://github.com/SKAARHOJ/Support/raw/master/Manuals/DC_SKAARHOJ_RawPanel.pdf
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">value</span>
+         hwc target
+        </li>
+        <li><span class="parameter">parameters</span>
+         table defining the text elements
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        string containing pipe-delimited characters
+    </ol>
+
+
+    <h3>See also:</h3>
+    <ul>
+         <li><a href="index.html#__ToBits">__ToBits</a></li>
+         <li><a href="index.html#__ToDecimal">__ToDecimal</a></li>
+    </ul>
+
+
+</dd>
+    <dt>
+    <a name = "__ConvertValue"></a>
+    <strong>__ConvertValue (value)</strong>
+    </dt>
+    <dd>
+    Boolean conversion method.
+<p> The RawPanel API, in certain cases, considers '0' to be false and '1' to be
+ true. This method converts true to '1' or false to '0'. If the value passed
+ into the method is neither true or false, the value is returned.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">value</span>
+         Value that needs conversion
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        string 1 for true, 0 for false, or value if neither
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "__Error"></a>
+    <strong>__Error (error)</strong>
+    </dt>
+    <dd>
+    Documents an error.
+<p> Logs an error using this driver interface's Error method.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">error</span>
+         error message
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        nil
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "__HasValue"></a>
+    <strong>__HasValue (tab, val)</strong>
+    </dt>
+    <dd>
+    Checks if table has a value.
+<p> Iteratively checks a table to see if either index or value is a match for
+ the supplied value.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">tab</span>
+         table to be searched
+        </li>
+        <li><span class="parameter">val</span>
+         value to be asserted
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        boolean true if found false if not
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "__InvalidResponse"></a>
+    <strong>__InvalidResponse (data)</strong>
+    </dt>
+    <dd>
+    Documents a bad response.
+<p> Documents an error using __Error.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">data</span>
+         the data responsible for triggering this method
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        nil
+    </ol>
+
+
+    <h3>See also:</h3>
+    <ul>
+         <a href="index.html#__Error">__Error</a>
+    </ul>
+
+
+</dd>
+    <dt>
+    <a name = "__Send"></a>
+    <strong>__Send (directive)</strong>
+    </dt>
+    <dd>
+    Sends device commands.
+<p> Sends a command using this driver interface's TCP socket.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">directive</span>
+         command string
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        nil
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "__SliceString"></a>
+    <strong>__SliceString (str, first, last)</strong>
+    </dt>
+    <dd>
+    Slices a string value and returns the result.
+<p> Method used to keep the buffer from overflowing. Returns slice of string
+ starting at first index and ending at last index.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">str</span>
+         string that needs to be sliced
+        </li>
+        <li><span class="parameter">first</span>
+         starting index
+        </li>
+        <li><span class="parameter">last</span>
+         ending index
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        string sliced string
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "__SortByGroup"></a>
+    <strong>__SortByGroup (data)</strong>
+    </dt>
+    <dd>
+    Sort controls by group number.
+<p> Raw Panel control topology assigns an ID to each control; these control ID's
+ are target values for each Raw Panel API command. Managing these ID's
+ manually is cumbersome, but this function makes it easier. When topology data
+ is received, that data is broken down into groups
+ (Group1, Group2, ...Group[n], and Master).
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">data</span>
+         topology data
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        table group of groups of controls
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "__ToBits"></a>
+    <strong>__ToBits (num, bits)</strong>
+    </dt>
+    <dd>
+    Converts an integer to binary.
+<p> Only necessary for Lua < 5.3 (Lua for Windows uses 5.1).
+ https://stackoverflow.com/questions/9079853/lua-print-integer-as-a-binary
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">num</span>
+         integer needing conversion
+        </li>
+        <li><span class="parameter">bits</span>
+         number of bits used to represent num
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        table containing binary represenation OR error message
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "__ToDecimal"></a>
+    <strong>__ToDecimal (bits)</strong>
+    </dt>
+    <dd>
+    Converts binary to integer.
+<p> Only necessary for Lua < 5.3 (Lua for Windows uses 5.1).
+ https://stackoverflow.com/questions/37543274/how-do-i-convert-binary-to-decimal-lua
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">bits</span>
+         binary represenation of number
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        integer sum of the binary digits
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "ParseData"></a>
+    <strong>ParseData (data)</strong>
+    </dt>
+    <dd>
+    Parses the incoming data for matches.
+<p> Stores and manages received buffer data. Checks data for matches and
+ calls the corresponding method.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">data</span>
+         received data
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        nil
+    </ol>
+
+
+
+
+</dd>
+    <dt>
+    <a name = "Put"></a>
+    <strong>Put (arguments)</strong>
+    </dt>
+    <dd>
+    Executes a Put command.
+<p> Alter the state of the target device.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">arguments</span>
+         table of arguments
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        nil
+    </ol>
+
+
+
+    <h3>Usage:</h3>
+    <ul>
+        <pre class="example">Put({[<span class="string">'directive'</span>] = <span class="string">'HWCValue'</span>, [<span class="string">'value'</span>] = <span class="number">2</span>, [<span class="string">'parameters'</span>] = {}})</pre>
+    </ul>
+
+</dd>
+    <dt>
+    <a name = "PutHWCValue"></a>
+    <strong>PutHWCValue (value, parameters)</strong>
+    </dt>
+    <dd>
+    Put method for HWCValue.
+<p> Sends HWC command to the device.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">value</span>
+         hwc target
+        </li>
+        <li><span class="parameter">parameters</span>
+         table of available parameters
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        nil
+    </ol>
+
+
+    <h3>See also:</h3>
+    <ul>
+         <li><a href="index.html#__Send">__Send</a></li>
+         <li><a href="index.html#__ComputeHWCValue">__ComputeHWCValue</a></li>
+    </ul>
+
+
+</dd>
+    <dt>
+    <a name = "PutHWCcValue"></a>
+    <strong>PutHWCcValue (value, parameters)</strong>
+    </dt>
+    <dd>
+    Put method for HWCcValue.
+<p> Sends HWCc command to device.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">value</span>
+         hwc target
+        </li>
+        <li><span class="parameter">parameters</span>
+         table containing rgb value
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        nil
+    </ol>
+
+
+    <h3>See also:</h3>
+    <ul>
+         <li><a href="index.html#__Send">__Send</a></li>
+         <li><a href="index.html#__ComputeHWCcValue">__ComputeHWCcValue</a></li>
+    </ul>
+
+
+</dd>
+    <dt>
+    <a name = "PutHWCtValue"></a>
+    <strong>PutHWCtValue (value, parameters)</strong>
+    </dt>
+    <dd>
+    Put method for HWCtValue.
+<p> Sends HWCt command to device.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">value</span>
+         hwc target
+        </li>
+        <li><span class="parameter">parameters</span>
+         table defining the text structure
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        nil
+    </ol>
+
+
+    <h3>See also:</h3>
+    <ul>
+         <li><a href="index.html#__Send">__Send</a></li>
+         <li><a href="index.html#__ComputeHWCtValue">__ComputeHWCtValue</a></li>
+    </ul>
+
+
+</dd>
+    <dt>
+    <a name = "PutHWCxValue"></a>
+    <strong>PutHWCxValue (value, parameters)</strong>
+    </dt>
+    <dd>
+    Put method for HWCxValue.
+<p> Sends HWCx command to device.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">value</span>
+         hwc target
+        </li>
+        <li><span class="parameter">parameters</span>
+         table of available parameters
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        nil
+    </ol>
+
+
+    <h3>See also:</h3>
+    <ul>
+         <li><a href="index.html#__Send">__Send</a></li>
+         <li><a href="index.html#__ComputeHWCxValue">__ComputeHWCxValue</a></li>
+    </ul>
+
+
+</dd>
+    <dt>
+    <a name = "Watcher"></a>
+    <strong>Watcher (directive, value, params, callback)</strong>
+    </dt>
+    <dd>
+    Registers a callback function that triggers when conditions are met.
+<p> Looks through Watcher values if directive exists in table. Tries to find a
+ match. If no match is found, a new Watcher is created; callback is replaced
+ if existing Watcher is found. If the directive doesn't exist, a new Watcher
+ is appended to the newly created table.
+
+
+
+    <h3>Parameters:</h3>
+    <ul>
+        <li><span class="parameter">directive</span>
+         table identity
+        </li>
+        <li><span class="parameter">value</span>
+         to watch
+        </li>
+        <li><span class="parameter">params</span>
+         table of parameters to qualify callback
+        </li>
+        <li><span class="parameter">callback</span>
+         method to use as a callback
+        </li>
+    </ul>
+
+    <h3>Returns:</h3>
+    <ol>
+
+        nil
+    </ol>
+
+
+
+
+</dd>
+</dl>
+
+
+</div> <!-- id="content" -->
+</div> <!-- id="main" -->
+<div id="about">
+<i>generated by <a href="http://github.com/stevedonovan/LDoc">LDoc 1.4.6</a></i>
+<i style="float:right;">Last updated 2021-10-10 13:05:32 </i>
+</div> <!-- id="about" -->
+</div> <!-- id="container" -->
+</body>
+</html>
