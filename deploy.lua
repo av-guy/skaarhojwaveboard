@@ -643,10 +643,6 @@ local Driver = {
     return sum
   end,
 
-  Get = function(self, arguments)
-    return 1
-  end,
-
 
   --- Parses the incoming data for matches.
   --
