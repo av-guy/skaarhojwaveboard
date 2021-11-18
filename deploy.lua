@@ -1035,7 +1035,7 @@ local TriggerButton = {
   end
 }
 
-local CueButton = ToggleButton:new({
+local CueButton = TriggerButton:new({
   trigger = function(self, _, status, ifc)
     status = status['status']
     if status == 'Down' then
@@ -1049,6 +1049,12 @@ local CueButton = ToggleButton:new({
 })
 
 -- Button Components End ----------------------------------------------------------------------------------------------
+
+
+-- Label Components Start ---------------------------------------------------------------------------------------------
+
+local MicrophoneLabel
+-- Label Components End -----------------------------------------------------------------------------------------------
 
 
 -- Basic Setup Start --------------------------------------------------------------------------------------------------
