@@ -1,7 +1,7 @@
 local json = require("rapidjson")
 local CUE_COLOR = 'Amber'
 local VU_COLOR = 'Mint'
-local MINIMUM = -24
+local MINIMUM = -40
 local MAXIMUM = 0
 
 --- WaveBoard Ethernet Driver Start -----------------------------------------------------------------------------------
@@ -928,7 +928,7 @@ local Meter = FaderComponent:new({
 local Fader = FaderComponent:new({
   trigger = function(self, directive, status, interface, send)
     if send ~= true then
-      local meterValue = status['status'] * 24 / 100000 * 100 - 24
+      local meterValue = status['status'] * (MINIMUM * -1) / 100000 * 100 - (MINIMUM * -1)
       self.matrix.Value = meterValue
     end
     self.meter:trigger(directive, status, interface)
@@ -949,17 +949,25 @@ local ToggleButton = {
     return object
   end,
 
-  trigger = function(self, directive, status, ifc)
+  toggleOn = function(self, ifc)
+    self.toggled = true
+    self:send(self.on, ifc)
+  end,
+
+  toggleOff = function(self, ifc)
+    self.toggled = false
+    self:send(self.off, ifc)
+  end,
+
+  trigger = function(self, _, status, ifc)
     status = status['status']
     if status == 'Down' then
       if self.toggled then
-        color = self.off
-        self.toggled = false
-        self:send(color, ifc)
+        self:toggleOff(ifc)
+        self.control.Value = 0.0
       else
-        color = self.on
-        self.toggled = true
-        self:send(color, ifc)
+        self:toggleOn(ifc)
+        self.control.Value = 1.0
       end
     end
   end,
@@ -1040,6 +1048,31 @@ local PhysicalControls = {}
 
 interface.Driver = waveboard
 
+
+MatrixFaders = {
+  ['1'] = Controls.Inputs[1],
+  ['2'] = Controls.Inputs[2],
+  ['3'] = Controls.Inputs[3],
+  ['4'] = Controls.Inputs[4],
+  ['5'] = Controls.Inputs[5],
+  ['6'] = Controls.Inputs[6],
+  ['7'] = Controls.Inputs[7],
+  ['8'] = Controls.Inputs[8]
+}
+
+
+MatrixMutes = {
+  ['1'] = Controls.Inputs[9],
+  ['2'] = Controls.Inputs[10],
+  ['3'] = Controls.Inputs[11],
+  ['4'] = Controls.Inputs[12],
+  ['5'] = Controls.Inputs[13],
+  ['6'] = Controls.Inputs[14],
+  ['7'] = Controls.Inputs[15],
+  ['8'] = Controls.Inputs[16]
+}
+
+
 -- Basic Setup End ----------------------------------------------------------------------------------------------------
 
 
@@ -1080,22 +1113,23 @@ function buildTriggerButton(hwc, color)
 end
 
 
-function buildToggleButton(hwc)
+function buildToggleButton(hwc, muteIndex)
   return ToggleButton:new({
     toggled = false,
     hwc = hwc,
     command = 'HWCValue',
     on = 'Red',
     off = 'Green',
-    parameter = 'Color'
+    parameter = 'Color',
+    control = MatrixMutes[tostring(muteIndex)]
   })
 end
 
 
-function buildButtons(group)
-  local mute = buildToggleButton(group['A'])
-  local cue = buildTriggerButton(group['B'], 'Amber')
-  local vu = buildTriggerButton(group['D'], 'Mint')
+function buildButtons(group, muteIndex)
+  local mute = buildToggleButton(group['A'], muteIndex)
+  local cue = buildTriggerButton(group['B'], CUE_COLOR)
+  local vu = buildTriggerButton(group['D'], VU_COLOR)
   return { mute, cue, vu }
 end
 
@@ -1124,7 +1158,7 @@ function buildControls()
     if string.find(index, 'Group') then
       fadersIndex = string.match(index, "%d")
       local fader = buildFaders(group, fadersIndex)
-      local mute, cue, vu = table.unpack(buildButtons(group))
+      local mute, cue, vu = table.unpack(buildButtons(group, fadersIndex))
       PhysicalControls[index] = {
         ['Fader'] = fader,
         ['Mute'] = mute,
@@ -1141,18 +1175,6 @@ end
 -- Main Start ---------------------------------------------------------------------------------------------------------
 
 
-MatrixFaders = {
-  ['1'] = Controls.Inputs[1],
-  ['2'] = Controls.Inputs[2],
-  ['3'] = Controls.Inputs[3],
-  ['4'] = Controls.Inputs[4],
-  ['5'] = Controls.Inputs[5],
-  ['6'] = Controls.Inputs[6],
-  ['7'] = Controls.Inputs[7],
-  ['8'] = Controls.Inputs[8]
-}
-
-
 function establishInterface(srvr, data)
   interface.Client = srvr
   interface.Driver:SetInterface(interface)
@@ -1160,33 +1182,57 @@ function establishInterface(srvr, data)
 end
 
 
-function establishFaderListeners()
-  for index, control in pairs(Controls.Inputs) do
-    control.EventHandler = function(changedControl)
+function faderListener(index, control)
+  control.EventHandler = function(changedControl)
+    local meterValue = 0
+    if changedControl.Value >= MAXIMUM then
+      meterValue = 1000
+    elseif changedControl.Value < MINIMUM then
       meterValue = 0
-      if changedControl.Value >= MAXIMUM then
-        meterValue = 1000
-      else
-        meterValue = math.floor((24 + changedControl.Value) / 24 * 100000 / 100)
-      end
-      target = PhysicalControls['Group' .. index]['Fader']
-      target:trigger(
-          'HWC', {
-            ['status'] = meterValue
-          },
-          interface.Driver,
-          true
-      )
+    else
+      meterValue = math.floor(((MINIMUM * -1) + changedControl.Value) / (MINIMUM * -1) * 100000 / 100)
+    end
+    local target = PhysicalControls['Group' .. index]['Fader']
+    target:trigger(
+        'HWC', {
+          ['status'] = meterValue
+        },
+        interface.Driver,
+        true
+    )
+  end
+end
+
+
+function muteListener(index, control)
+  control.EventHandler = function(changedControl)
+    local target = PhysicalControls['Group' .. index]
+    if changedControl.Value == 1.0 then
+      target['Mute']:toggleOn(interface.Driver)
+    else
+      target['Mute']:toggleOff(interface.Driver)
     end
   end
 end
+
+
+function establishListeners()
+  for index, control in pairs(Controls.Inputs) do
+    if index <= 8 then
+      faderListener(index, control)
+    else
+      muteListener(index - 8, control)
+    end
+  end
+end
+
 
 
 function eventHandler(srvr, data)
   establishInterface(srvr, data)
   if interface.Driver.Groups ~= nil and not registered then
     buildControls()
-    establishFaderListeners()
+    establishListeners()
     registered = true
   end
 end
