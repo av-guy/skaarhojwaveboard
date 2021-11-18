@@ -991,7 +991,7 @@ local TriggerButton = {
     return object
   end,
 
-  trigger = function(self, directive, status, ifc)
+  trigger = function(self, _, status, ifc)
     status = status['status']
     if status == 'Down' then
       self:on(ifc)
@@ -1035,6 +1035,19 @@ local TriggerButton = {
   end
 }
 
+local CueButton = ToggleButton:new({
+  trigger = function(self, _, status, ifc)
+    status = status['status']
+    if status == 'Down' then
+      self:on(ifc)
+      self.output.Value = 0.0
+    else
+      self:off(ifc)
+      self.output.Value = -100.0
+    end
+  end,
+})
+
 -- Button Components End ----------------------------------------------------------------------------------------------
 
 
@@ -1072,6 +1085,16 @@ MatrixMutes = {
   ['8'] = Controls.Inputs[16]
 }
 
+ControlOutputs = {
+  ['1'] = Controls.Outputs[1],
+  ['2'] = Controls.Outputs[2],
+  ['3'] = Controls.Outputs[3],
+  ['4'] = Controls.Outputs[4],
+  ['5'] = Controls.Outputs[5],
+  ['6'] = Controls.Outputs[6],
+  ['7'] = Controls.Outputs[7],
+  ['8'] = Controls.Outputs[8]
+}
 
 -- Basic Setup End ----------------------------------------------------------------------------------------------------
 
@@ -1104,6 +1127,13 @@ function buildFaders(group, fadersIndex)
   })
 end
 
+function buildCueButton(hwc, color, outputIndex)
+  return CueButton:new({
+    hwc = hwc,
+    color = color,
+    output = ControlOutputs[tostring(outputIndex)]
+  })
+end
 
 function buildTriggerButton(hwc, color)
   return TriggerButton:new({
@@ -1128,7 +1158,7 @@ end
 
 function buildButtons(group, muteIndex)
   local mute = buildToggleButton(group['A'], muteIndex)
-  local cue = buildTriggerButton(group['B'], CUE_COLOR)
+  local cue = buildCueButton(group['B'], CUE_COLOR, muteIndex)
   local vu = buildTriggerButton(group['D'], VU_COLOR)
   return { mute, cue, vu }
 end
