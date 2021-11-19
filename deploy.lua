@@ -3,6 +3,7 @@ local CUE_COLOR = 'Amber'
 local VU_COLOR = 'Mint'
 local MINIMUM = -40
 local MAXIMUM = 0
+local PORT = 9923
 
 --- WaveBoard Ethernet Driver Start -----------------------------------------------------------------------------------
 
@@ -803,7 +804,6 @@ local Driver = {
       if watcherValue then
         for _, watcher in pairs(watcherValue) do
           if watcher:matches(params) then
-            print('it matches')
             watcher.callback = callback
             return 1
           end
@@ -897,9 +897,6 @@ local FaderComponent = {
   end,
 
   send = function(self, value, ifc)
-    if ifc == nil then
-      ifc = self.interface
-    end
     ifc:Put({
       ['directive'] = 'HWCxValue',
       ['value'] = self.id,
@@ -912,9 +909,9 @@ local FaderComponent = {
 }
 
 local Slider = FaderComponent:new({
-  trigger = function(self, _, status, _)
+  trigger = function(self, _, status, ifc)
     status = self.convertToPercent(status, false)
-    self:send(status)
+    self:send(status, ifc)
   end
 })
 
@@ -1036,14 +1033,21 @@ local TriggerButton = {
 }
 
 local CueButton = TriggerButton:new({
+  toggled = false,
   trigger = function(self, _, status, ifc)
     status = status['status']
     if status == 'Down' then
-      self:on(ifc)
-      self.output.Value = 0.0
-    else
-      self:off(ifc)
-      self.output.Value = -100.0
+      if self.toggled then
+        print('should turn off')
+        self.toggled = false
+        self:off(ifc)
+        self.output.Value = -100.0
+      else
+        print('should turn on')
+        self.toggled = true
+        self:on(ifc)
+        self.output.Value = 0
+      end
     end
   end,
 })
@@ -1053,7 +1057,24 @@ local CueButton = TriggerButton:new({
 
 -- Label Components Start ---------------------------------------------------------------------------------------------
 
-local MicrophoneLabel
+local MicrophoneLabel = {
+  new = function(self, object)
+    object = object or {}
+    setmetatable(object, self)
+    self.__index = self
+    return object
+  end,
+
+  send = function(self, val, ifc)
+    ifc:Put({
+      ['directive'] = 'HWCtValue',
+      ['value'] = self.disp,
+      ['parameters'] = {
+        ['Label1'] = val
+      }
+    })
+  end
+}
 -- Label Components End -----------------------------------------------------------------------------------------------
 
 
@@ -1063,10 +1084,10 @@ local server = TcpSocketServer.New()
 local interface = DriverInterface:New()
 local waveboard = Driver:new()
 local registered = false
+local listeners = false
 local PhysicalControls = {}
 
 interface.Driver = waveboard
-
 
 MatrixFaders = {
   ['1'] = Controls.Inputs[1],
@@ -1078,7 +1099,6 @@ MatrixFaders = {
   ['7'] = Controls.Inputs[7],
   ['8'] = Controls.Inputs[8]
 }
-
 
 MatrixMutes = {
   ['1'] = Controls.Inputs[9],
@@ -1110,18 +1130,15 @@ ControlOutputs = {
 
 function buildSlider(group)
   return Slider:new({
-    interface = interface.Driver,
     id = group['Fader']
   })
 end
-
 
 function buildMeter(group)
   return Meter:new({
     id = group['MTR']
   })
 end
-
 
 function buildFaders(group, fadersIndex)
   local slider = buildSlider(group)
@@ -1141,13 +1158,19 @@ function buildCueButton(hwc, color, outputIndex)
   })
 end
 
+function buildMicrophoneLabel(group, fadersIndex)
+  return MicrophoneLabel:new({
+    index = fadersIndex,
+    disp = group['Disp']
+  })
+end
+
 function buildTriggerButton(hwc, color)
   return TriggerButton:new({
     hwc = hwc,
     color = color
   })
 end
-
 
 function buildToggleButton(hwc, muteIndex)
   return ToggleButton:new({
@@ -1161,14 +1184,12 @@ function buildToggleButton(hwc, muteIndex)
   })
 end
 
-
 function buildButtons(group, muteIndex)
   local mute = buildToggleButton(group['A'], muteIndex)
   local cue = buildCueButton(group['B'], CUE_COLOR, muteIndex)
   local vu = buildTriggerButton(group['D'], VU_COLOR)
   return { mute, cue, vu }
 end
-
 
 function buildWatchers(group, fader, mute, cue, vu)
   local watchers = {
@@ -1187,7 +1208,6 @@ function buildWatchers(group, fader, mute, cue, vu)
   end
 end
 
-
 function buildControls()
   local fadersIndex = 1
   for index, group in pairs(interface.Driver.Groups) do
@@ -1195,6 +1215,8 @@ function buildControls()
       fadersIndex = string.match(index, "%d")
       local fader = buildFaders(group, fadersIndex)
       local mute, cue, vu = table.unpack(buildButtons(group, fadersIndex))
+      local label = buildMicrophoneLabel(group, fadersIndex)
+      label:send('Mic ' .. fadersIndex, interface.Driver)
       PhysicalControls[index] = {
         ['Fader'] = fader,
         ['Mute'] = mute,
@@ -1217,40 +1239,63 @@ function establishInterface(srvr, data)
   interface.Driver:ParseData(data)
 end
 
+function setMeterValue(index, changedControl)
+  local meterValue = 0
+  if changedControl.Value >= MAXIMUM then
+    meterValue = 1000
+  elseif changedControl.Value < MINIMUM then
+    meterValue = 0
+  else
+    meterValue = math.floor(((MINIMUM * -1) + changedControl.Value) / (MINIMUM * -1) * 100000 / 100)
+  end
+  local target = PhysicalControls['Group' .. index]['Fader']
+  target:trigger(
+      'HWC', {
+        ['status'] = meterValue
+      },
+      interface.Driver,
+      true
+  )
+end
+
+function setMeterValues()
+  for index, fader in pairs(MatrixFaders) do
+    setMeterValue(index, fader)
+  end
+end
+
+function setMuteValue(index, changedControl)
+  local target = PhysicalControls['Group' .. index]
+  if changedControl.Value == 1.0 then
+    target['Mute']:toggleOn(interface.Driver)
+  else
+    target['Mute']:toggleOff(interface.Driver)
+  end
+end
+
+function setMuteValues()
+  for index, mute in pairs(MatrixMutes) do
+    setMuteValue(index, mute)
+  end
+end
+
+function setCueValues()
+  for _, cue in pairs(ControlOutputs) do
+    cue.Value = -100.0
+  end
+end
 
 function faderListener(index, control)
   control.EventHandler = function(changedControl)
-    local meterValue = 0
-    if changedControl.Value >= MAXIMUM then
-      meterValue = 1000
-    elseif changedControl.Value < MINIMUM then
-      meterValue = 0
-    else
-      meterValue = math.floor(((MINIMUM * -1) + changedControl.Value) / (MINIMUM * -1) * 100000 / 100)
-    end
-    local target = PhysicalControls['Group' .. index]['Fader']
-    target:trigger(
-        'HWC', {
-          ['status'] = meterValue
-        },
-        interface.Driver,
-        true
-    )
+    setMeterValue(index, changedControl)
   end
 end
-
 
 function muteListener(index, control)
   control.EventHandler = function(changedControl)
-    local target = PhysicalControls['Group' .. index]
-    if changedControl.Value == 1.0 then
-      target['Mute']:toggleOn(interface.Driver)
-    else
-      target['Mute']:toggleOff(interface.Driver)
-    end
+    setMuteValue(index, changedControl)
   end
 end
-
 
 function establishListeners()
   for index, control in pairs(Controls.Inputs) do
@@ -1262,33 +1307,56 @@ function establishListeners()
   end
 end
 
-
-
 function eventHandler(srvr, data)
   establishInterface(srvr, data)
   if interface.Driver.Groups ~= nil and not registered then
     buildControls()
-    establishListeners()
+    if listeners ~= true then
+      establishListeners()
+      listeners = true
+    end
+    setMeterValues()
+    setMuteValues()
+    setCueValues()
+    registered = true
+  elseif not registered then
+    setMeterValues()
+    setMuteValues()
+    setCueValues()
     registered = true
   end
 end
 
+sockets = {}
+
+function removeSocket(sock)
+  for key, socket in pairs(sockets) do
+    if socket == sock then
+      table.remove(sockets, key)
+    end
+  end
+end
 
 function socketHandler(sock, event)
   if event == TcpSocket.Events.Data then
     eventHandler(sock, sock:Read(sock.BufferLength))
+  elseif event == TcpSocket.Events.Closed
+      or event == TcpSocket.Events.Error
+      or event == TcpSocket.Events.Timeout then
+    removeSocket(sock)
+    registered = false
+    server:Close()
+    server:Listen(PORT)
   end
 end
 
-
 server.EventHandler = function(instance)
-  instance.ReadTimeout = 100000000
+  table.insert(sockets, instance)
   instance.EventHandler = socketHandler
 end
 
-
 waveboard:__SynchronizeTopology('{"HWc":[{"id":1,"x":482,"y":331,"txt":"Disp1","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":2,"x":432,"y":331,"txt":"DA1","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":3,"x":532,"y":331,"txt":"DB1","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":4,"x":427,"y":442,"txt":"A1","type":129},{"id":5,"x":537,"y":442,"txt":"B1","type":129},{"id":6,"x":427,"y":539,"txt":"C1","type":129},{"id":7,"x":537,"y":539,"txt":"D1","type":129},{"id":8,"x":482,"y":1116,"txt":"Fader 1","type":28},{"id":9,"x":355,"y":1251,"txt":"MTR 1","type":145},{"id":10,"x":743,"y":331,"txt":"Disp2","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":11,"x":693,"y":331,"txt":"DA2","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":12,"x":793,"y":331,"txt":"DB2","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":13,"x":688,"y":442,"txt":"A2","type":129},{"id":14,"x":798,"y":442,"txt":"B2","type":129},{"id":15,"x":688,"y":539,"txt":"C2","type":129},{"id":16,"x":798,"y":539,"txt":"D2","type":129},{"id":17,"x":743,"y":1116,"txt":"Fader 2","type":28},{"id":18,"x":616,"y":1251,"txt":"MTR 2","type":145},{"id":19,"x":1003,"y":331,"txt":"Disp3","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":20,"x":953,"y":331,"txt":"DA3","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":21,"x":1053,"y":331,"txt":"DB3","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":22,"x":948,"y":442,"txt":"A3","type":129},{"id":23,"x":1058,"y":442,"txt":"B3","type":129},{"id":24,"x":948,"y":539,"txt":"C3","type":129},{"id":25,"x":1058,"y":539,"txt":"D3","type":129},{"id":26,"x":1003,"y":1116,"txt":"Fader 3","type":28},{"id":27,"x":876,"y":1251,"txt":"MTR 3","type":145},{"id":28,"x":1264,"y":331,"txt":"Disp4","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":29,"x":1214,"y":331,"txt":"DA4","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":30,"x":1314,"y":331,"txt":"DB4","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":31,"x":1209,"y":442,"txt":"A4","type":129},{"id":32,"x":1319,"y":442,"txt":"B4","type":129},{"id":33,"x":1209,"y":539,"txt":"C4","type":129},{"id":34,"x":1319,"y":539,"txt":"D4","type":129},{"id":35,"x":1264,"y":1116,"txt":"Fader 4","type":28},{"id":36,"x":1137,"y":1251,"txt":"MTR 4","type":145},{"id":37,"x":1524,"y":331,"txt":"Disp5","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":38,"x":1474,"y":331,"txt":"DA5","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":39,"x":1574,"y":331,"txt":"DB5","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":40,"x":1469,"y":442,"txt":"A5","type":129},{"id":41,"x":1579,"y":442,"txt":"B5","type":129},{"id":42,"x":1469,"y":539,"txt":"C5","type":129},{"id":43,"x":1579,"y":539,"txt":"D5","type":129},{"id":44,"x":1524,"y":1116,"txt":"Fader 5","type":28},{"id":45,"x":1397,"y":1251,"txt":"MTR 5","type":145},{"id":46,"x":1785,"y":331,"txt":"Disp6","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":47,"x":1735,"y":331,"txt":"DA6","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":48,"x":1835,"y":331,"txt":"DB6","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":49,"x":1730,"y":442,"txt":"A6","type":129},{"id":50,"x":1840,"y":442,"txt":"B6","type":129},{"id":51,"x":1730,"y":539,"txt":"C6","type":129},{"id":52,"x":1840,"y":539,"txt":"D6","type":129},{"id":53,"x":1785,"y":1116,"txt":"Fader 6","type":28},{"id":54,"x":1658,"y":1251,"txt":"MTR 6","type":145},{"id":55,"x":2045,"y":331,"txt":"Disp7","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":56,"x":1995,"y":331,"txt":"DA7","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":57,"x":2095,"y":331,"txt":"DB7","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":58,"x":1990,"y":442,"txt":"A7","type":129},{"id":59,"x":2100,"y":442,"txt":"B7","type":129},{"id":60,"x":1990,"y":539,"txt":"C7","type":129},{"id":61,"x":2100,"y":539,"txt":"D7","type":129},{"id":62,"x":2045,"y":1116,"txt":"Fader 7","type":28},{"id":63,"x":1918,"y":1251,"txt":"MTR 7","type":145},{"id":64,"x":2306,"y":331,"txt":"Disp8","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":65,"x":2256,"y":331,"txt":"DA8","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":66,"x":2356,"y":331,"txt":"DB8","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":67,"x":2251,"y":442,"txt":"A8","type":129},{"id":68,"x":2361,"y":442,"txt":"B8","type":129},{"id":69,"x":2251,"y":539,"txt":"C8","type":129},{"id":70,"x":2361,"y":539,"txt":"D8","type":129},{"id":71,"x":2306,"y":1116,"txt":"Fader 8","type":28},{"id":72,"x":2179,"y":1251,"txt":"MTR 8","type":145},{"id":73,"x":185,"y":331,"txt":"Disp","type":75},{"id":74,"x":185,"y":472,"txt":"F0","type":126},{"id":75,"x":185,"y":622,"txt":"F1","type":126},{"id":76,"x":185,"y":792,"txt":"F2","type":126},{"id":77,"x":185,"y":942,"txt":"F3","type":126},{"id":78,"x":185,"y":1112,"txt":"F4","type":126},{"id":79,"x":2340,"y":130,"txt":"Controller","type":250},{"id":80,"x":475,"y":269,"txt":"Section 1A","type":250},{"id":81,"x":1517,"y":269,"txt":"Section 2A","type":250},{"id":82,"x":2299,"y":269,"txt":"Section 3A","type":250},{"id":83,"x":420,"y":644,"txt":"Section 1B","type":250},{"id":84,"x":1462,"y":644,"txt":"Section 2B","type":250},{"id":85,"x":2244,"y":644,"txt":"Section 3B","type":250}],"typeIndex":{"28":{"w":30,"h":710,"in":"av","ext":"pos","subidx":0,"desc":"Motorized Fader 60mm","sub":[{"_":"r","_x":-63,"_y":53,"_w":125,"_h":250}]},"30":{"w":246,"h":78,"disp":{"w":128,"h":32},"desc":"OLED Display Tile"},"70":{"w":90,"h":60,"disp":{"w":64,"h":32},"desc":"OLED Display Tile"},"75":{"w":134,"h":76,"disp":{"w":64,"h":32},"desc":"OLED Display Tile"},"126":{"w":100,"h":120,"out":"rgb","in":"b4","desc":"Elastomer Four-Way Button"},"129":{"w":70,"h":60,"out":"rgb","in":"b","desc":"Elastomer Button"},"145":{"w":80,"h":520,"out":"rgb","ext":"steps","desc":"LED-Bar, 10 steps","sub":[{"_idx":5,"_":"r","_x":-30,"_y":-36,"_w":60,"_h":30},{"_idx":6,"_":"r","_x":-30,"_y":15,"_w":60,"_h":30},{"_idx":4,"_":"r","_x":-30,"_y":-86,"_w":60,"_h":30},{"_idx":7,"_":"r","_x":-30,"_y":65,"_w":60,"_h":30},{"_idx":3,"_":"r","_x":-30,"_y":-136,"_w":60,"_h":30},{"_idx":8,"_":"r","_x":-30,"_y":115,"_w":60,"_h":30},{"_idx":2,"_":"r","_x":-30,"_y":-186,"_w":60,"_h":30},{"_idx":9,"_":"r","_x":-30,"_y":165,"_w":60,"_h":30},{"_idx":1,"_":"r","_x":-30,"_y":-236,"_w":60,"_h":30},{"_idx":10,"_":"r","_x":-30,"_y":215,"_w":60,"_h":30}]},"250":{"w":214,"h":34,"sub":[{"_":"r","_x":-105,"_y":-15,"_w":210,"_h":30,"rx":5,"ry":5,"style":"fill:rgb(103,118,131);"}]}}}')
-server:Listen(9923)
+server:Listen(PORT)
 
 -- Main End -----------------------------------------------------------------------------------------------------------
 
