@@ -503,8 +503,8 @@ local Driver = {
   -- @return nil
   __Synchronize = function(self, control, value, params)
     if self.__WATCHERS['HWC'][control] ~= nil then
-      watchers = self.__WATCHERS['HWC'][control]
-      for index, watcher in pairs(watchers) do
+      local watchers = self.__WATCHERS['HWC'][control]
+      for _, watcher in pairs(watchers) do
         if watcher:matches(params) then
           watcher:write(value, params)
           watcher:notify('HWC', self)
@@ -547,7 +547,7 @@ local Driver = {
   __SynchronizeMasterData = function(self, data)
     local match = '(%d*)(%.(%d))=(.*)'
     local _, _, control, _, mask, value = string.find(data, match)
-    self.__Synchronize(control, value, {})
+    self:__Synchronize(control, value, {})
   end,
 
 
@@ -1083,8 +1083,7 @@ local FaderGroupButton = ToggleButton:new({
   trigger = function(self, _, status, ifc)
     status = status['status']
     if status == 'Down' then
-      print('detecting a press event')
-      self.group.notify(self, ifc)
+      self.group:notify(self, ifc)
     end
   end
 })
@@ -1098,11 +1097,18 @@ local FaderGroup = {
   end,
 
   notify = function(self, fgb, ifc)
+    local target = nil
     for _, btn in pairs(self.btns) do
+      btn:toggleOff(ifc)
       if btn == fgb then
-        print('found')
+        target = fgb
       end
     end
+    target:toggleOn(ifc)
+  end,
+
+  setButtons = function(self, btns)
+    self.btns = btns
   end
 }
 
@@ -1226,13 +1232,12 @@ function buildFaderGroups(master)
   local faderGroup = FaderGroup:new()
   local faders = {}
   for index, control in pairs(master) do
-    if control == 'F1'
-      or control == 'F2'
-      or control == 'F3'
-      or control == 'F4' then
+    if index == 'F1'
+      or index == 'F2'
+      or index == 'F3' then
       faders[index] = FaderGroupButton:new({
         toggled = false,
-        hwc = master['F1'],
+        hwc = control,
         command = 'HWCValue',
         on = 'White',
         off = 'Off',
@@ -1241,6 +1246,7 @@ function buildFaderGroups(master)
       })
     end
   end
+  faderGroup:setButtons(faders)
   return faders
 end
 
@@ -1261,14 +1267,8 @@ function buildWatchers(group, fader, mute, cue, vu)
   end
 end
 
-function buildFaderWatchers(master, f1, f2, f3, f4)
-  local watchers = {
-    ['F1'] = f1,
-    ['F2'] = f2,
-    ['F3'] = f3,
-    ['F4'] = f4
-  }
-  for index, control in pairs(watchers) do
+function buildFaderWatchers(master, faders)
+  for index, control in pairs(faders) do
     interface.Driver:Watcher(
         'HWC',
         tostring(master[index]),
@@ -1389,8 +1389,8 @@ function eventHandler(srvr, data)
     buildControls()
     if listeners ~= true then
       local master = interface.Driver.Groups['Master']
-      local f1, f2, f3, f4 = table.unpack(buildFaderGroups(master))
-      buildFaderWatchers(master, f1, f2, f3, f4)
+      local faders = buildFaderGroups(master)
+      buildFaderWatchers(master, faders)
       establishListeners()
       listeners = true
     end
