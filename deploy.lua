@@ -4,8 +4,7 @@ local VU_COLOR = 'Mint'
 local MINIMUM = -40
 local MAXIMUM = 0
 local PORT = 9923
-local BLOCKING = false
-local BLOCK_NEXT = false
+local PhysicalControls = {}
 
 --- WaveBoard Ethernet Driver Start -----------------------------------------------------------------------------------
 
@@ -964,10 +963,10 @@ local ToggleButton = {
     if status == 'Down' then
       if self.toggled then
         self:toggleOff(ifc)
-        self.control.Value = 0.0
+        ControlOutputs[self.control].Value = 0.0
       else
         self:toggleOn(ifc)
-        self.control.Value = 1.0
+        ControlOutputs[self.control].Value = 1.0
       end
     end
   end,
@@ -1109,7 +1108,7 @@ local FaderGroup = {
       end
     end
     target:toggleOn(ifc)
-    self.controls:shift(targetIndex)
+    self.controls:shift(targetIndex, ifc)
   end,
 
   setButtons = function(self, btns)
@@ -1154,10 +1153,38 @@ local OutputControlRouter = InputControlRouter:new({
   end
 })
 
+local InputNamesRouter = InputControlRouter:new({
+  shift = function(self, groupNum, ifc)
+    local micsMap = {
+      ['19'] = 'RF-1',
+      ['20'] = 'RF-2',
+      ['21'] = 'RF-3',
+      ['22'] = 'RF-4',
+      ['23'] = 'Wall',
+      ['24'] = 'Floor'
+    }
+    local microphoneName = nil
+    local microphoneNumber = nil
+    groupNum = self.values[groupNum]
+    for index = 1, 8 do
+      microphoneNumber = index + (groupNum * 8)
+      if microphoneNumber <= 18 then
+        microphoneName = 'Mic ' .. tostring(microphoneNumber)
+      else
+        microphoneName = micsMap[tostring(microphoneNumber)]
+      end
+      PhysicalControls['Group' .. tostring(index)]['Label']:send(microphoneName, ifc)
+    end
+  end
+})
+
 local AggregateControlRouter = InputControlRouter:new({
-  shift = function(self, groupNum)
+  shift = function(self, groupNum, ifc)
     self.inputs:shift(groupNum)
     self.outputs:shift(groupNum)
+    self.muteInputs:shift(groupNum)
+    self.muteOutputs:shift(groupNum)
+    self.inputNames:shift(groupNum, ifc)
   end
 })
 
@@ -1171,7 +1198,6 @@ local interface = DriverInterface:New()
 local waveboard = Driver:new()
 local registered = false
 local listeners = false
-local PhysicalControls = {}
 
 interface.Driver = waveboard
 
@@ -1277,7 +1303,7 @@ function buildToggleButton(hwc, muteIndex)
     on = 'Red',
     off = 'Green',
     parameter = 'Color',
-    control = MatrixMutes[tostring(muteIndex)]
+    control = tostring(muteIndex)
   })
 end
 
@@ -1306,24 +1332,42 @@ function buildOutputControlRouter(controls, values)
   })
 end
 
-function buildFaderGroups(master, faderRouterControls, muteRouterControls)
+function buildFaderRouters(faderRouterControls)
   local faderInputRouter = buildControlRouter(faderRouterControls)
   local faderOutputRouter = buildOutputControlRouter(MatrixFaders, {
     ['F1'] = 0,
     ['F2'] = 1,
     ['F3'] = 2
   })
+  return { [1] = faderInputRouter, [2] = faderOutputRouter }
+end
+
+function buildMuteRouters(muteRouterControls)
   local muteInputRouter = buildControlRouter(muteRouterControls)
   local muteOutputRouter = buildOutputControlRouter(ControlOutputs, {
     ['F1'] = 3,
     ['F2'] = 4,
     ['F3'] = 5
   })
+  return { [1] = muteInputRouter, [2] = muteOutputRouter }
+end
+
+function buildFaderGroups(master, faderRouterControls, muteRouterControls)
+  local faderInputRouter, faderOutputRouter = table.unpack(buildFaderRouters(faderRouterControls))
+  local muteInputRouter, muteOutputRouter = table.unpack(buildMuteRouters(muteRouterControls))
+  local inputNamesRouter = InputNamesRouter:new({
+    values = {
+      ['F1'] = 0,
+      ['F2'] = 1,
+      ['F3'] = 2
+    }
+  })
   local controlRouter = AggregateControlRouter:new({
     inputs = faderInputRouter,
     muteInputs = muteInputRouter,
     muteOutputs = muteOutputRouter,
-    outputs = faderOutputRouter
+    outputs = faderOutputRouter,
+    inputNames = inputNamesRouter
   })
   local faderGroup = FaderGroup:new()
   local faders = {}
@@ -1388,7 +1432,8 @@ function buildControls()
         ['Fader'] = fader,
         ['Mute'] = mute,
         ['Cue'] = cue,
-        ['VU'] = vu
+        ['VU'] = vu,
+        ['Label'] = label
       }
       buildWatchers(group, fader, mute, cue, vu)
     end
@@ -1495,17 +1540,19 @@ function eventHandler(srvr, data)
   establishInterface(srvr, data)
   if interface.Driver.Groups ~= nil and not registered then
     buildControls()
+    local faders = nil
     if listeners ~= true then
       local faderRouterControls = createRouterControls("Fader In")
       local muteRouterControls = createRouterControls("Mute In")
       local master = interface.Driver.Groups['Master']
-      local faders = buildFaderGroups(master, faderRouterControls, muteRouterControls)
+      faders = buildFaderGroups(master, faderRouterControls, muteRouterControls)
       buildFaderWatchers(master, faders)
       establishListeners()
       listeners = true
     end
     setValues()
     registered = true
+    faders['F2']:trigger('HWC', { ['status'] = 'Down' }, interface.Driver)
   elseif not registered then
     setValues()
     registered = true
