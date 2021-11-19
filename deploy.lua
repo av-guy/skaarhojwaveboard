@@ -72,7 +72,7 @@ local Driver = {
     ['nack'] = '__InvalidResponse',
     -- ['_panelTopology_HWC=.*}}}'] = '__SynchronizeTopology',
     ['HWC#(%d*)=(.*)'] = '__SynchronizeControl',
-    ['HWC#(%d*)(%.)(%d)=(.*)'] = '__SynchronizeMasterData'
+    ['HWC#(%d*)(%.%d)=(.*)'] = '__SynchronizeMasterData' -- HWC#75.4=Down
   },
   __WATCHERS = {},
   HWCValues = {
@@ -545,8 +545,9 @@ local Driver = {
   --
   -- @return nil
   __SynchronizeMasterData = function(self, data)
-    local match = '(%d*)(%.)(%d)=(.*)'
+    local match = '(%d*)(%.(%d))=(.*)'
     local _, _, control, _, mask, value = string.find(data, match)
+    self.__Synchronize(control, value, {})
   end,
 
 
@@ -1038,12 +1039,10 @@ local CueButton = TriggerButton:new({
     status = status['status']
     if status == 'Down' then
       if self.toggled then
-        print('should turn off')
         self.toggled = false
         self:off(ifc)
         self.output.Value = -100.0
       else
-        print('should turn on')
         self.toggled = true
         self:on(ifc)
         self.output.Value = 0
@@ -1075,7 +1074,39 @@ local MicrophoneLabel = {
     })
   end
 }
+
 -- Label Components End -----------------------------------------------------------------------------------------------
+
+-- Fader Group Components Start ---------------------------------------------------------------------------------------
+
+local FaderGroupButton = ToggleButton:new({
+  trigger = function(self, _, status, ifc)
+    status = status['status']
+    if status == 'Down' then
+      print('detecting a press event')
+      self.group.notify(self, ifc)
+    end
+  end
+})
+
+local FaderGroup = {
+  new = function(self, object)
+    object = object or {}
+    setmetatable(object, self)
+    self.__index = self
+    return object
+  end,
+
+  notify = function(self, fgb, ifc)
+    for _, btn in pairs(self.btns) do
+      if btn == fgb then
+        print('found')
+      end
+    end
+  end
+}
+
+-- Fader Group Components End -----------------------------------------------------------------------------------------
 
 
 -- Basic Setup Start --------------------------------------------------------------------------------------------------
@@ -1090,14 +1121,14 @@ local PhysicalControls = {}
 interface.Driver = waveboard
 
 MatrixFaders = {
-  ['1'] = Controls.Inputs[1],
-  ['2'] = Controls.Inputs[2],
-  ['3'] = Controls.Inputs[3],
-  ['4'] = Controls.Inputs[4],
-  ['5'] = Controls.Inputs[5],
-  ['6'] = Controls.Inputs[6],
-  ['7'] = Controls.Inputs[7],
-  ['8'] = Controls.Inputs[8]
+  ['1'] = Controls.Outputs[9],
+  ['2'] = Controls.Outputs[10],
+  ['3'] = Controls.Outputs[11],
+  ['4'] = Controls.Outputs[12],
+  ['5'] = Controls.Outputs[13],
+  ['6'] = Controls.Outputs[14],
+  ['7'] = Controls.Outputs[15],
+  ['8'] = Controls.Outputs[16]
 }
 
 MatrixMutes = {
@@ -1191,6 +1222,28 @@ function buildButtons(group, muteIndex)
   return { mute, cue, vu }
 end
 
+function buildFaderGroups(master)
+  local faderGroup = FaderGroup:new()
+  local faders = {}
+  for index, control in pairs(master) do
+    if control == 'F1'
+      or control == 'F2'
+      or control == 'F3'
+      or control == 'F4' then
+      faders[index] = FaderGroupButton:new({
+        toggled = false,
+        hwc = master['F1'],
+        command = 'HWCValue',
+        on = 'White',
+        off = 'Off',
+        parameter = 'Color',
+        group = faderGroup
+      })
+    end
+  end
+  return faders
+end
+
 function buildWatchers(group, fader, mute, cue, vu)
   local watchers = {
     ['A'] = mute,
@@ -1202,6 +1255,23 @@ function buildWatchers(group, fader, mute, cue, vu)
     interface.Driver:Watcher(
         'HWC',
         tostring(group[index]),
+        {},
+        control
+    )
+  end
+end
+
+function buildFaderWatchers(master, f1, f2, f3, f4)
+  local watchers = {
+    ['F1'] = f1,
+    ['F2'] = f2,
+    ['F3'] = f3,
+    ['F4'] = f4
+  }
+  for index, control in pairs(watchers) do
+    interface.Driver:Watcher(
+        'HWC',
+        tostring(master[index]),
         {},
         control
     )
@@ -1307,22 +1377,27 @@ function establishListeners()
   end
 end
 
+function setValues()
+  setMeterValues()
+  setMuteValues()
+  setCueValues()
+end
+
 function eventHandler(srvr, data)
   establishInterface(srvr, data)
   if interface.Driver.Groups ~= nil and not registered then
     buildControls()
     if listeners ~= true then
+      local master = interface.Driver.Groups['Master']
+      local f1, f2, f3, f4 = table.unpack(buildFaderGroups(master))
+      buildFaderWatchers(master, f1, f2, f3, f4)
       establishListeners()
       listeners = true
     end
-    setMeterValues()
-    setMuteValues()
-    setCueValues()
+    setValues()
     registered = true
   elseif not registered then
-    setMeterValues()
-    setMuteValues()
-    setCueValues()
+    setValues()
     registered = true
   end
 end
