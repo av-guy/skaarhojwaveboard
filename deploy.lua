@@ -4,6 +4,8 @@ local VU_COLOR = 'Mint'
 local MINIMUM = -40
 local MAXIMUM = 0
 local PORT = 9923
+local BLOCKING = false
+local BLOCK_NEXT = false
 
 --- WaveBoard Ethernet Driver Start -----------------------------------------------------------------------------------
 
@@ -927,7 +929,7 @@ local Fader = FaderComponent:new({
   trigger = function(self, directive, status, interface, send)
     if send ~= true then
       local meterValue = status['status'] * (MINIMUM * -1) / 100000 * 100 - (MINIMUM * -1)
-      self.matrix.Value = meterValue
+      MatrixFaders[tostring(self.matrix)].Value = meterValue
     end
     self.meter:trigger(directive, status, interface)
     self.slider:trigger(directive, status, interface)
@@ -1098,21 +1100,68 @@ local FaderGroup = {
 
   notify = function(self, fgb, ifc)
     local target = nil
-    for _, btn in pairs(self.btns) do
+    local targetIndex = nil
+    for index, btn in pairs(self.btns) do
       btn:toggleOff(ifc)
       if btn == fgb then
         target = fgb
+        targetIndex = index
       end
     end
     target:toggleOn(ifc)
+    self.controls:shift(targetIndex)
   end,
 
   setButtons = function(self, btns)
     self.btns = btns
+  end,
+
+  setRouterControls = function(self, controls)
+    self.controls = controls
   end
 }
 
 -- Fader Group Components End -----------------------------------------------------------------------------------------
+
+-- Router Components Start --------------------------------------------------------------------------------------------
+
+
+local InputControlRouter = {
+  new = function(self, object)
+    object = object or {}
+    setmetatable(object, self)
+    self.__index = self
+    return object
+  end,
+
+  shift = function(self, groupNum)
+    local controlIndex = nil
+    groupNum = self.values[groupNum]
+    for index, control in pairs(self.controls) do
+      controlIndex = string.match(index, "%d")
+      control.Value = controlIndex + (groupNum * 8)
+    end
+  end
+}
+
+local OutputControlRouter = InputControlRouter:new({
+  shift = function(self, groupNum)
+    groupNum = self.values[groupNum]
+    for index, _ in pairs(MatrixFaders) do
+      local target = groupNum * 8 + tonumber(index)
+      self.controls[index] = Controls.Outputs[target]
+    end
+  end
+})
+
+local AggregateControlRouter = InputControlRouter:new({
+  shift = function(self, groupNum)
+    self.inputs:shift(groupNum)
+    self.outputs:shift(groupNum)
+  end
+})
+
+-- Router Components End ----------------------------------------------------------------------------------------------
 
 
 -- Basic Setup Start --------------------------------------------------------------------------------------------------
@@ -1137,6 +1186,17 @@ MatrixFaders = {
   ['8'] = Controls.Outputs[16]
 }
 
+MatrixInputs = {
+  ['1'] = Controls.Inputs[1],
+  ['2'] = Controls.Inputs[2],
+  ['3'] = Controls.Inputs[3],
+  ['4'] = Controls.Inputs[4],
+  ['5'] = Controls.Inputs[5],
+  ['6'] = Controls.Inputs[6],
+  ['7'] = Controls.Inputs[7],
+  ['8'] = Controls.Inputs[8]
+}
+
 MatrixMutes = {
   ['1'] = Controls.Inputs[9],
   ['2'] = Controls.Inputs[10],
@@ -1149,14 +1209,14 @@ MatrixMutes = {
 }
 
 ControlOutputs = {
-  ['1'] = Controls.Outputs[1],
-  ['2'] = Controls.Outputs[2],
-  ['3'] = Controls.Outputs[3],
-  ['4'] = Controls.Outputs[4],
-  ['5'] = Controls.Outputs[5],
-  ['6'] = Controls.Outputs[6],
-  ['7'] = Controls.Outputs[7],
-  ['8'] = Controls.Outputs[8]
+  ['1'] = Controls.Outputs[25],
+  ['2'] = Controls.Outputs[26],
+  ['3'] = Controls.Outputs[27],
+  ['4'] = Controls.Outputs[28],
+  ['5'] = Controls.Outputs[29],
+  ['6'] = Controls.Outputs[30],
+  ['7'] = Controls.Outputs[31],
+  ['8'] = Controls.Outputs[32]
 }
 
 -- Basic Setup End ----------------------------------------------------------------------------------------------------
@@ -1183,7 +1243,7 @@ function buildFaders(group, fadersIndex)
   return Fader:new({
     meter = meter,
     slider = slider,
-    matrix = MatrixFaders[tostring(fadersIndex)]
+    matrix = tostring(fadersIndex)
   })
 end
 
@@ -1228,13 +1288,49 @@ function buildButtons(group, muteIndex)
   return { mute, cue, vu }
 end
 
-function buildFaderGroups(master)
+function buildControlRouter(controls)
+  return InputControlRouter:new({
+    controls = controls,
+    values = {
+      ['F1'] = 0,
+      ['F2'] = 1,
+      ['F3'] = 2
+    }
+  })
+end
+
+function buildOutputControlRouter(controls, values)
+  return OutputControlRouter:new({
+    controls = controls,
+    values = values
+  })
+end
+
+function buildFaderGroups(master, faderRouterControls, muteRouterControls)
+  local faderInputRouter = buildControlRouter(faderRouterControls)
+  local faderOutputRouter = buildOutputControlRouter(MatrixFaders, {
+    ['F1'] = 0,
+    ['F2'] = 1,
+    ['F3'] = 2
+  })
+  local muteInputRouter = buildControlRouter(muteRouterControls)
+  local muteOutputRouter = buildOutputControlRouter(ControlOutputs, {
+    ['F1'] = 3,
+    ['F2'] = 4,
+    ['F3'] = 5
+  })
+  local controlRouter = AggregateControlRouter:new({
+    inputs = faderInputRouter,
+    muteInputs = muteInputRouter,
+    muteOutputs = muteOutputRouter,
+    outputs = faderOutputRouter
+  })
   local faderGroup = FaderGroup:new()
   local faders = {}
   for index, control in pairs(master) do
     if index == 'F1'
-      or index == 'F2'
-      or index == 'F3' then
+        or index == 'F2'
+        or index == 'F3' then
       faders[index] = FaderGroupButton:new({
         toggled = false,
         hwc = control,
@@ -1247,6 +1343,7 @@ function buildFaderGroups(master)
     end
   end
   faderGroup:setButtons(faders)
+  faderGroup:setRouterControls(controlRouter)
   return faders
 end
 
@@ -1383,13 +1480,26 @@ function setValues()
   setCueValues()
 end
 
+function createRouterControls(component)
+  local router = Component.New(component)
+  local routerControls = {}
+  for index, control in pairs(router) do
+    if control.Type == 'Integer' then
+      routerControls[index] = control
+    end
+  end
+  return routerControls
+end
+
 function eventHandler(srvr, data)
   establishInterface(srvr, data)
   if interface.Driver.Groups ~= nil and not registered then
     buildControls()
     if listeners ~= true then
+      local faderRouterControls = createRouterControls("Fader In")
+      local muteRouterControls = createRouterControls("Mute In")
       local master = interface.Driver.Groups['Master']
-      local faders = buildFaderGroups(master)
+      local faders = buildFaderGroups(master, faderRouterControls, muteRouterControls)
       buildFaderWatchers(master, faders)
       establishListeners()
       listeners = true
