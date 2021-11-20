@@ -5,6 +5,9 @@ local MINIMUM = -40
 local MAXIMUM = 0
 local PORT = 9923
 local PhysicalControls = {}
+local METER = nil
+local VU = nil
+local SERVER = nil
 
 --- WaveBoard Ethernet Driver Start -----------------------------------------------------------------------------------
 
@@ -149,6 +152,7 @@ local Driver = {
       ['Fader'] = 5,
     }
   },
+  BLOCKING = false,
 
   SetInterface = function(self, interface)
     self.interface = interface
@@ -693,17 +697,19 @@ local Driver = {
   --
   -- @return nil
   Put = function(self, arguments)
-    local directive = arguments.directive
-    if self.__VALID['Commands'][directive] then
-      local value = arguments.value
-      local parameters = arguments.parameters
-      local fn = 'Put' .. directive
-      if type(self[fn]) == 'function' then
-        fn = self[fn]
-        fn(self, value, parameters)
+    if self.BLOCKING ~= true then
+      local directive = arguments.directive
+      if self.__VALID['Commands'][directive] then
+        local value = arguments.value
+        local parameters = arguments.parameters
+        local fn = 'Put' .. directive
+        if type(self[fn]) == 'function' then
+          fn = self[fn]
+          fn(self, value, parameters)
+        end
+      else
+        self:__Error(directive .. 'is an invalid command.')
       end
-    else
-      self:__Error(directive .. 'is an invalid command.')
     end
   end,
 
@@ -898,13 +904,17 @@ local FaderComponent = {
     return 1
   end,
 
-  send = function(self, value, ifc)
+  send = function(self, value, ifc, metering)
+    local outputType = 'Strength'
+    if metering == true then
+      outputType = 'VUMetering'
+    end
     ifc:Put({
       ['directive'] = 'HWCxValue',
       ['value'] = self.id,
       ['parameters'] = {
         ['Percent'] = value,
-        ['OutputType'] = 'Strength'
+        ['OutputType'] = outputType
       }
     })
   end
@@ -918,9 +928,9 @@ local Slider = FaderComponent:new({
 })
 
 local Meter = FaderComponent:new({
-  trigger = function(self, _, status, ifc)
+  trigger = function(self, _, status, ifc, metering)
     status = self.convertToPercent(status, true)
-    self:send(status, ifc)
+    self:send(status, ifc, metering)
   end,
 })
 
@@ -930,8 +940,17 @@ local Fader = FaderComponent:new({
       local meterValue = status['status'] * (MINIMUM * -1) / 100000 * 100 - (MINIMUM * -1)
       MatrixFaders[tostring(self.matrix)].Value = meterValue
     end
-    self.meter:trigger(directive, status, interface)
+    self.lastStatus = status
+    if not self.METERING then
+      self.meter:trigger(directive, status, interface)
+    end
     self.slider:trigger(directive, status, interface)
+  end,
+
+  sync = function(self, ifc)
+    if self.lastStatus ~= nil then
+      self.meter:trigger('HWC', self.lastStatus, ifc)
+    end
   end
 })
 
@@ -1042,15 +1061,17 @@ local CueButton = TriggerButton:new({
       if self.toggled then
         self.toggled = false
         self:off(ifc)
-        self.output.Value = -100.0
+        self.outputs[self.output].Value = -100.0
       else
         self.toggled = true
         self:on(ifc)
-        self.output.Value = 0
+        self.outputs[self.output].Value = 0.0
       end
     end
   end,
 })
+
+local VUButton = CueButton:new()
 
 -- Button Components End ----------------------------------------------------------------------------------------------
 
@@ -1146,7 +1167,7 @@ local InputControlRouter = {
 local OutputControlRouter = InputControlRouter:new({
   shift = function(self, groupNum)
     groupNum = self.values[groupNum]
-    for index, _ in pairs(MatrixFaders) do
+    for index, _ in pairs(self.controls) do
       local target = groupNum * 8 + tonumber(index)
       self.controls[index] = Controls.Outputs[target]
     end
@@ -1180,11 +1201,22 @@ local InputNamesRouter = InputControlRouter:new({
 
 local AggregateControlRouter = InputControlRouter:new({
   shift = function(self, groupNum, ifc)
+    self.killVUMeters()
     self.inputs:shift(groupNum)
     self.outputs:shift(groupNum)
     self.muteInputs:shift(groupNum)
     self.muteOutputs:shift(groupNum)
+    self.cueInputs:shift(groupNum)
+    self.cueOutputs:shift(groupNum)
+    self.vuInputs:shift(groupNum)
+    self.vuOutputs:shift(groupNum)
     self.inputNames:shift(groupNum, ifc)
+  end,
+
+  killVUMeters = function()
+    for _, output in pairs(VUOutputs) do
+      output.Value = -100.0
+    end
   end
 })
 
@@ -1198,6 +1230,7 @@ local interface = DriverInterface:New()
 local waveboard = Driver:new()
 local registered = false
 local listeners = false
+local faders = {}
 
 interface.Driver = waveboard
 
@@ -1245,6 +1278,28 @@ ControlOutputs = {
   ['8'] = Controls.Outputs[32]
 }
 
+CueOutputs = {
+  ['1'] = Controls.Outputs[49],
+  ['2'] = Controls.Outputs[50],
+  ['3'] = Controls.Outputs[51],
+  ['4'] = Controls.Outputs[52],
+  ['5'] = Controls.Outputs[53],
+  ['6'] = Controls.Outputs[54],
+  ['7'] = Controls.Outputs[55],
+  ['8'] = Controls.Outputs[56]
+}
+
+VUOutputs = {
+  ['1'] = Controls.Outputs[73],
+  ['2'] = Controls.Outputs[74],
+  ['3'] = Controls.Outputs[75],
+  ['4'] = Controls.Outputs[76],
+  ['5'] = Controls.Outputs[77],
+  ['6'] = Controls.Outputs[78],
+  ['7'] = Controls.Outputs[79],
+  ['8'] = Controls.Outputs[80]
+}
+
 -- Basic Setup End ----------------------------------------------------------------------------------------------------
 
 
@@ -1277,7 +1332,17 @@ function buildCueButton(hwc, color, outputIndex)
   return CueButton:new({
     hwc = hwc,
     color = color,
-    output = ControlOutputs[tostring(outputIndex)]
+    output = tostring(outputIndex),
+    outputs = CueOutputs
+  })
+end
+
+function buildVUButton(hwc, color, outputIndex)
+  return VUButton:new({
+    hwc = hwc,
+    color = color,
+    output = tostring(outputIndex),
+    outputs = VUOutputs
   })
 end
 
@@ -1310,7 +1375,7 @@ end
 function buildButtons(group, muteIndex)
   local mute = buildToggleButton(group['A'], muteIndex)
   local cue = buildCueButton(group['B'], CUE_COLOR, muteIndex)
-  local vu = buildTriggerButton(group['D'], VU_COLOR)
+  local vu = buildVUButton(group['D'], VU_COLOR, muteIndex)
   return { mute, cue, vu }
 end
 
@@ -1332,29 +1397,49 @@ function buildOutputControlRouter(controls, values)
   })
 end
 
+function buildRouters(routerControls, components, values)
+  local inputRouter = buildControlRouter(routerControls)
+  local outputRouter = buildOutputControlRouter(components, values)
+  return { [1] = inputRouter, [2] = outputRouter }
+end
+
 function buildFaderRouters(faderRouterControls)
-  local faderInputRouter = buildControlRouter(faderRouterControls)
-  local faderOutputRouter = buildOutputControlRouter(MatrixFaders, {
+  return buildRouters(faderRouterControls, MatrixFaders, {
     ['F1'] = 0,
     ['F2'] = 1,
     ['F3'] = 2
   })
-  return { [1] = faderInputRouter, [2] = faderOutputRouter }
 end
 
 function buildMuteRouters(muteRouterControls)
-  local muteInputRouter = buildControlRouter(muteRouterControls)
-  local muteOutputRouter = buildOutputControlRouter(ControlOutputs, {
+  return buildRouters(muteRouterControls, ControlOutputs, {
     ['F1'] = 3,
     ['F2'] = 4,
     ['F3'] = 5
   })
-  return { [1] = muteInputRouter, [2] = muteOutputRouter }
 end
 
-function buildFaderGroups(master, faderRouterControls, muteRouterControls)
+function buildCueRouters(cueRouterControls)
+  return buildRouters(cueRouterControls, CueOutputs, {
+    ['F1'] = 6,
+    ['F2'] = 7,
+    ['F3'] = 8
+  })
+end
+
+function buildVURouters(vuRouterControls)
+  return buildRouters(vuRouterControls, VUOutputs, {
+    ['F1'] = 9,
+    ['F2'] = 10,
+    ['F3'] = 11
+  })
+end
+
+function buildFaderGroups(master, faderRouterControls, muteRouterControls, cueRouterControls, vuRouterControls)
   local faderInputRouter, faderOutputRouter = table.unpack(buildFaderRouters(faderRouterControls))
   local muteInputRouter, muteOutputRouter = table.unpack(buildMuteRouters(muteRouterControls))
+  local cueInputRouter, cueOutputRouter = table.unpack(buildCueRouters(cueRouterControls))
+  local vuInputRouter, vuOutputRouter = table.unpack(buildVURouters(vuRouterControls))
   local inputNamesRouter = InputNamesRouter:new({
     values = {
       ['F1'] = 0,
@@ -1366,6 +1451,10 @@ function buildFaderGroups(master, faderRouterControls, muteRouterControls)
     inputs = faderInputRouter,
     muteInputs = muteInputRouter,
     muteOutputs = muteOutputRouter,
+    cueInputs = cueInputRouter,
+    cueOutputs = cueOutputRouter,
+    vuInputs = vuInputRouter,
+    vuOutputs = vuOutputRouter,
     outputs = faderOutputRouter,
     inputNames = inputNamesRouter
   })
@@ -1476,6 +1565,10 @@ function setMeterValues()
   end
 end
 
+function setCueValues()
+  return 1
+end
+
 function setMuteValue(index, changedControl)
   local target = PhysicalControls['Group' .. index]
   if changedControl.Value == 1.0 then
@@ -1491,9 +1584,63 @@ function setMuteValues()
   end
 end
 
-function setCueValues()
-  for _, cue in pairs(ControlOutputs) do
-    cue.Value = -100.0
+function setCueValue(index, changedControl)
+  local target = PhysicalControls['Group' .. index]
+  if changedControl.Value <= -100 then
+    target['Cue'].toggled = false
+    target['Cue']:off(interface.Driver)
+  else
+    target['Cue'].toggled = true
+    target['Cue']:on(interface.Driver)
+  end
+end
+
+function setVUValue(index, changedControl)
+  local target = PhysicalControls['Group' .. index]
+  local vu = target['VU']
+  local fader = target['Fader']
+  if changedControl.Value <= -100 then
+    if VU == vu then
+      VU = nil
+    end
+    if METER == fader then
+      METER = nil
+    end
+    vu.toggled = false
+    fader.METERING = false
+    fader:sync(interface.Driver)
+    vu:off(interface.Driver)
+  else
+    if VU ~= nil then
+      vu.toggled = false
+      VU:off(interface.Driver)
+      VU.outputs[VU.output].Value = -100.0
+    end
+    if METER ~= nil then
+      METER.METERING = false
+      METER:sync(interface.Driver)
+    end
+    VU = vu
+    METER = fader
+    vu.toggled = true
+    fader.METERING = true
+    vu:on(interface.Driver)
+    setPeakValue(Controls.Inputs[33])
+  end
+end
+
+function setPeakValue(changedControl)
+  if METER ~= nil then
+    local meterValue = nil
+    if changedControl.Value <= MINIMUM then
+      meterValue = 0
+    else
+      meterValue = math.floor(((MINIMUM * -1) + changedControl.Value) / (MINIMUM * -1) * 100000 / 100)
+    end
+    if meterValue > 1000 then
+      meterValue = 1000
+    end
+    METER.meter:trigger('HWC', { ['status'] = meterValue }, interface.Driver, true)
   end
 end
 
@@ -1509,20 +1656,54 @@ function muteListener(index, control)
   end
 end
 
+function peakListener(control)
+  control.EventHandler = function(changedControl)
+    setPeakValue(changedControl)
+  end
+end
+
+function cueListener(index, control)
+  control.EventHandler = function(changedControl)
+    setCueValue(index, changedControl)
+  end
+end
+
+function vuListener(index, control)
+  control.EventHandler = function(changedControl)
+    setVUValue(index, changedControl)
+  end
+end
+
 function establishListeners()
   for index, control in pairs(Controls.Inputs) do
     if index <= 8 then
       faderListener(index, control)
-    else
+    elseif index > 8 and index <= 16 then
       muteListener(index - 8, control)
+    elseif index > 16 and index <= 24 then
+      cueListener(index - 16, control)
+    elseif index > 24 and index <= 32 then
+      vuListener(index - 24, control)
+    else
+      peakListener(control)
     end
   end
 end
 
 function setValues()
-  setMeterValues()
-  setMuteValues()
-  setCueValues()
+  for index, control in pairs(Controls.Inputs) do
+    if index <= 8 then
+      setMeterValue(index, control)
+    elseif index > 8 and index <= 16 then
+      setMuteValue(index - 8, control)
+    elseif index > 16 and index <= 24 then
+      setCueValue(index - 16, control)
+    elseif index > 24 and index <= 32 then
+      setVUValue(index - 24, control)
+    else
+      peakListener(control)
+    end
+  end
 end
 
 function createRouterControls(component)
@@ -1537,23 +1718,30 @@ function createRouterControls(component)
 end
 
 function eventHandler(srvr, data)
+  if SERVER == nil then
+    SERVER = srvr
+  end
   establishInterface(srvr, data)
   if interface.Driver.Groups ~= nil and not registered then
     buildControls()
-    local faders = nil
     if listeners ~= true then
       local faderRouterControls = createRouterControls("Fader In")
       local muteRouterControls = createRouterControls("Mute In")
+      local cueRouterControls = createRouterControls("Cue In")
+      local vuRouterControls = createRouterControls("VU In")
       local master = interface.Driver.Groups['Master']
-      faders = buildFaderGroups(master, faderRouterControls, muteRouterControls)
+      faders = buildFaderGroups(master, faderRouterControls, muteRouterControls, cueRouterControls, vuRouterControls)
       buildFaderWatchers(master, faders)
       establishListeners()
       listeners = true
     end
+    faders['F1']:trigger('HWC', { ['status'] = 'Down' }, interface.Driver)
     setValues()
     registered = true
-    faders['F2']:trigger('HWC', { ['status'] = 'Down' }, interface.Driver)
-  elseif not registered then
+  elseif not registered or SERVER ~= srvr then
+    removeSocket(SERVER)
+    SERVER = srvr
+    faders['F1']:trigger('HWC', { ['status'] = 'Down' }, interface.Driver)
     setValues()
     registered = true
   end
@@ -1589,6 +1777,8 @@ end
 
 waveboard:__SynchronizeTopology('{"HWc":[{"id":1,"x":482,"y":331,"txt":"Disp1","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":2,"x":432,"y":331,"txt":"DA1","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":3,"x":532,"y":331,"txt":"DB1","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":4,"x":427,"y":442,"txt":"A1","type":129},{"id":5,"x":537,"y":442,"txt":"B1","type":129},{"id":6,"x":427,"y":539,"txt":"C1","type":129},{"id":7,"x":537,"y":539,"txt":"D1","type":129},{"id":8,"x":482,"y":1116,"txt":"Fader 1","type":28},{"id":9,"x":355,"y":1251,"txt":"MTR 1","type":145},{"id":10,"x":743,"y":331,"txt":"Disp2","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":11,"x":693,"y":331,"txt":"DA2","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":12,"x":793,"y":331,"txt":"DB2","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":13,"x":688,"y":442,"txt":"A2","type":129},{"id":14,"x":798,"y":442,"txt":"B2","type":129},{"id":15,"x":688,"y":539,"txt":"C2","type":129},{"id":16,"x":798,"y":539,"txt":"D2","type":129},{"id":17,"x":743,"y":1116,"txt":"Fader 2","type":28},{"id":18,"x":616,"y":1251,"txt":"MTR 2","type":145},{"id":19,"x":1003,"y":331,"txt":"Disp3","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":20,"x":953,"y":331,"txt":"DA3","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":21,"x":1053,"y":331,"txt":"DB3","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":22,"x":948,"y":442,"txt":"A3","type":129},{"id":23,"x":1058,"y":442,"txt":"B3","type":129},{"id":24,"x":948,"y":539,"txt":"C3","type":129},{"id":25,"x":1058,"y":539,"txt":"D3","type":129},{"id":26,"x":1003,"y":1116,"txt":"Fader 3","type":28},{"id":27,"x":876,"y":1251,"txt":"MTR 3","type":145},{"id":28,"x":1264,"y":331,"txt":"Disp4","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":29,"x":1214,"y":331,"txt":"DA4","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":30,"x":1314,"y":331,"txt":"DB4","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":31,"x":1209,"y":442,"txt":"A4","type":129},{"id":32,"x":1319,"y":442,"txt":"B4","type":129},{"id":33,"x":1209,"y":539,"txt":"C4","type":129},{"id":34,"x":1319,"y":539,"txt":"D4","type":129},{"id":35,"x":1264,"y":1116,"txt":"Fader 4","type":28},{"id":36,"x":1137,"y":1251,"txt":"MTR 4","type":145},{"id":37,"x":1524,"y":331,"txt":"Disp5","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":38,"x":1474,"y":331,"txt":"DA5","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":39,"x":1574,"y":331,"txt":"DB5","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":40,"x":1469,"y":442,"txt":"A5","type":129},{"id":41,"x":1579,"y":442,"txt":"B5","type":129},{"id":42,"x":1469,"y":539,"txt":"C5","type":129},{"id":43,"x":1579,"y":539,"txt":"D5","type":129},{"id":44,"x":1524,"y":1116,"txt":"Fader 5","type":28},{"id":45,"x":1397,"y":1251,"txt":"MTR 5","type":145},{"id":46,"x":1785,"y":331,"txt":"Disp6","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":47,"x":1735,"y":331,"txt":"DA6","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":48,"x":1835,"y":331,"txt":"DB6","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":49,"x":1730,"y":442,"txt":"A6","type":129},{"id":50,"x":1840,"y":442,"txt":"B6","type":129},{"id":51,"x":1730,"y":539,"txt":"C6","type":129},{"id":52,"x":1840,"y":539,"txt":"D6","type":129},{"id":53,"x":1785,"y":1116,"txt":"Fader 6","type":28},{"id":54,"x":1658,"y":1251,"txt":"MTR 6","type":145},{"id":55,"x":2045,"y":331,"txt":"Disp7","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":56,"x":1995,"y":331,"txt":"DA7","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":57,"x":2095,"y":331,"txt":"DB7","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":58,"x":1990,"y":442,"txt":"A7","type":129},{"id":59,"x":2100,"y":442,"txt":"B7","type":129},{"id":60,"x":1990,"y":539,"txt":"C7","type":129},{"id":61,"x":2100,"y":539,"txt":"D7","type":129},{"id":62,"x":2045,"y":1116,"txt":"Fader 7","type":28},{"id":63,"x":1918,"y":1251,"txt":"MTR 7","type":145},{"id":64,"x":2306,"y":331,"txt":"Disp8","type":30,"typeOverride":{"disp":{"w":112,"h":32}}},{"id":65,"x":2256,"y":331,"txt":"DA8","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":66,"x":2356,"y":331,"txt":"DB8","type":70,"typeOverride":{"disp":{"w":56,"h":32}}},{"id":67,"x":2251,"y":442,"txt":"A8","type":129},{"id":68,"x":2361,"y":442,"txt":"B8","type":129},{"id":69,"x":2251,"y":539,"txt":"C8","type":129},{"id":70,"x":2361,"y":539,"txt":"D8","type":129},{"id":71,"x":2306,"y":1116,"txt":"Fader 8","type":28},{"id":72,"x":2179,"y":1251,"txt":"MTR 8","type":145},{"id":73,"x":185,"y":331,"txt":"Disp","type":75},{"id":74,"x":185,"y":472,"txt":"F0","type":126},{"id":75,"x":185,"y":622,"txt":"F1","type":126},{"id":76,"x":185,"y":792,"txt":"F2","type":126},{"id":77,"x":185,"y":942,"txt":"F3","type":126},{"id":78,"x":185,"y":1112,"txt":"F4","type":126},{"id":79,"x":2340,"y":130,"txt":"Controller","type":250},{"id":80,"x":475,"y":269,"txt":"Section 1A","type":250},{"id":81,"x":1517,"y":269,"txt":"Section 2A","type":250},{"id":82,"x":2299,"y":269,"txt":"Section 3A","type":250},{"id":83,"x":420,"y":644,"txt":"Section 1B","type":250},{"id":84,"x":1462,"y":644,"txt":"Section 2B","type":250},{"id":85,"x":2244,"y":644,"txt":"Section 3B","type":250}],"typeIndex":{"28":{"w":30,"h":710,"in":"av","ext":"pos","subidx":0,"desc":"Motorized Fader 60mm","sub":[{"_":"r","_x":-63,"_y":53,"_w":125,"_h":250}]},"30":{"w":246,"h":78,"disp":{"w":128,"h":32},"desc":"OLED Display Tile"},"70":{"w":90,"h":60,"disp":{"w":64,"h":32},"desc":"OLED Display Tile"},"75":{"w":134,"h":76,"disp":{"w":64,"h":32},"desc":"OLED Display Tile"},"126":{"w":100,"h":120,"out":"rgb","in":"b4","desc":"Elastomer Four-Way Button"},"129":{"w":70,"h":60,"out":"rgb","in":"b","desc":"Elastomer Button"},"145":{"w":80,"h":520,"out":"rgb","ext":"steps","desc":"LED-Bar, 10 steps","sub":[{"_idx":5,"_":"r","_x":-30,"_y":-36,"_w":60,"_h":30},{"_idx":6,"_":"r","_x":-30,"_y":15,"_w":60,"_h":30},{"_idx":4,"_":"r","_x":-30,"_y":-86,"_w":60,"_h":30},{"_idx":7,"_":"r","_x":-30,"_y":65,"_w":60,"_h":30},{"_idx":3,"_":"r","_x":-30,"_y":-136,"_w":60,"_h":30},{"_idx":8,"_":"r","_x":-30,"_y":115,"_w":60,"_h":30},{"_idx":2,"_":"r","_x":-30,"_y":-186,"_w":60,"_h":30},{"_idx":9,"_":"r","_x":-30,"_y":165,"_w":60,"_h":30},{"_idx":1,"_":"r","_x":-30,"_y":-236,"_w":60,"_h":30},{"_idx":10,"_":"r","_x":-30,"_y":215,"_w":60,"_h":30}]},"250":{"w":214,"h":34,"sub":[{"_":"r","_x":-105,"_y":-15,"_w":210,"_h":30,"rx":5,"ry":5,"style":"fill:rgb(103,118,131);"}]}}}')
 server:Listen(PORT)
+
+print('Server listening on port: ', PORT)
 
 -- Main End -----------------------------------------------------------------------------------------------------------
 
