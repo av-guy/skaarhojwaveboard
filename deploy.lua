@@ -8,6 +8,7 @@ local PhysicalControls = {}
 local METER = nil
 local VU = nil
 local SERVER = nil
+local CUES = {}
 
 --- WaveBoard Ethernet Driver Start -----------------------------------------------------------------------------------
 
@@ -64,7 +65,8 @@ local Driver = {
       ['HWCxValue'] = 1,
       ['HWCValue'] = 1,
       ['HWCxValue'] = 1,
-      ['HWCtValue'] = 1
+      ['HWCtValue'] = 1,
+      ['SleepTimer'] = 1
     },
     ['Watchers'] = {
       ['HWC'] = 1
@@ -495,6 +497,19 @@ local Driver = {
   end,
 
 
+  --- Detects when the device is not asleep
+  --
+  -- The Waveboard will periodically fall asleep; this triggers the callback on the sleep listener.
+  --
+  -- @param data the match data
+  --
+  -- @return nil
+  __SynchronizeSleep = function(self, data)
+    print('trying to synchronize sleep state')
+    return 1
+  end,
+
+
   --- Synchronize values with their watchers
   --
   -- When a value is received from the Waveboard, this function will look to
@@ -787,6 +802,13 @@ local Driver = {
     self:__Send(command)
   end,
 
+  PutSleepTimer = function(self, value, parameters)
+    if value == 'Off' then
+      self:__Send('SleepTimer=0')
+    else
+      self:__Send('SleepTimer=' .. parameters['Milliseconds'])
+    end
+  end,
 
   --- Registers a callback function that triggers when conditions are met.
   --
@@ -1584,14 +1606,28 @@ function setMuteValues()
   end
 end
 
+function determineProgramAudioStatus()
+  local count = 0
+  for _, __ in pairs(CUES) do
+    count = count + 1
+  end
+  if count <= 0 then
+    Controls.Outputs[97].Value = 0.0
+  end
+end
+
 function setCueValue(index, changedControl)
   local target = PhysicalControls['Group' .. index]
   if changedControl.Value <= -100 then
     target['Cue'].toggled = false
     target['Cue']:off(interface.Driver)
+    table.remove(CUES, target['Cue'])
+    determineProgramAudioStatus()
   else
     target['Cue'].toggled = true
     target['Cue']:on(interface.Driver)
+    table.insert(CUES, target['Cue'])
+    Controls.Outputs[97].Value = 1.0
   end
 end
 
@@ -1737,11 +1773,21 @@ function eventHandler(srvr, data)
     end
     faders['F1']:trigger('HWC', { ['status'] = 'Down' }, interface.Driver)
     setValues()
+    interface.Driver:Put({
+      ['directive'] = 'SleepTimer',
+      ['value'] = 'Off',
+      ['parameters'] = {}
+    })
     registered = true
   elseif not registered or SERVER ~= srvr then
     removeSocket(SERVER)
     SERVER = srvr
     faders['F1']:trigger('HWC', { ['status'] = 'Down' }, interface.Driver)
+    interface.Driver:Put({
+      ['directive'] = 'SleepTimer',
+      ['value'] = 'Off',
+      ['parameters'] = {}
+    })
     setValues()
     registered = true
   end
